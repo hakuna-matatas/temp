@@ -1,0 +1,351 @@
+<html>
+<head>
+<title>INFO 3300 - Data-driven Web Applications</title>
+
+<link href="https://fonts.googleapis.com/css?family=Barlow+Condensed" rel="stylesheet">
+<link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.9.0/styles/default.min.css">
+<link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+<link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/dc/1.7.5/dc.css"/>
+
+
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.js" charset="utf-8"></script>
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/crossfilter/1.3.12/crossfilter.js"></script>
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/dc/1.7.5/dc.js"></script>
+
+<!-- dc.js only works with ver three, which is why i commented this out -->
+<!-- <script src="//d3js.org/d3.v4.min.js"></script> -->
+<script src="//d3js.org/topojson.v2.min.js"></script>
+<script src="http://d3js.org/queue.v1.min.js"></script>
+<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.9.0/highlight.min.js"></script>
+
+<script src="https://dc-js.github.io/dc.js/js/crossfilter.js"></script>
+
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/dc/1.7.5/dc.js"></script>
+
+<script src="https://code.jquery.com/jquery-1.12.4.js"></script>
+<script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+
+<style>
+body { 
+  font-family: 'Barlow Condensed', Calibri, 
+  sans-serif; 
+}
+svg {
+   border: solid #ccc 1px; }
+path.county { 
+  fill: #ccc; 
+  stroke: #888;; }
+.background {
+  fill: #eee;
+  pointer-events: all;
+}
+.map-layer {
+  fill: #fff;
+  stroke: #aaa;
+}
+.effect-layer{
+  pointer-events:none;
+}
+
+.weekDays-selector input {
+  display: none!important;
+}
+
+.weekDays-selector input[type=checkbox] + label {
+  display: inline-block;
+  border-radius: 6px;
+  background: #dddddd;
+  height: 40px;
+  width: 30px;
+  margin-right: 3px;
+  line-height: 40px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.weekDays-selector input[type=checkbox]:checked + label {
+  background: #2AD705;
+  color: #ffffff;
+}
+</style>
+</head>
+
+<body>
+<svg>
+  <defs>  
+   <mask id="mask-path" x="0" y="0" width="1" height="1">  
+      <circle cx="250" cy="250" r="245" fill="#9c6"/>
+      </mask> 
+  </defs>
+</svg>
+<br> <br> <br>
+
+<!-- Type of Crime: Clickable circles -->
+<!-- <label>Type of Crime:</label> -->
+<div id="type-of-crime-chart"></div>
+<br> <br> <br>
+
+<!-- Day of Week: Clickable circles -->
+<!-- <label>Day of Week:</label> -->
+<!-- <div id="dow_chckbox" class="weekDays-selector"></div> -->
+<div id="day-of-week-chart"></div>
+<br> <br> <br>
+
+<!-- Time of Day: Double slider -->
+<!-- <p>
+  <label>Time range:</label>
+  <input id="time_label"/>
+</p>
+<div id="time_of_day_slider"></div> -->
+
+ 
+<script>
+
+////////////// 
+// HEAT MAP //
+//////////////
+var width = 500,
+    height = 500,
+    centered;
+
+// Define color scale
+var color = d3.scale.linear()
+  .domain([1, 20])
+  .clamp(true)
+  .range(['#fff', '#409A99']);
+
+var projection = d3.geo.mercator()
+  .scale(70000)
+  // Center the Map in Colombia
+  .center([-84.388, 33.749])
+  .translate([width / 2, height / 2]);
+
+var path = d3.geo.path()
+  .projection(projection);
+
+// Set svg width & height
+var svg = d3.select('svg')
+  .attr('width', width)
+  .attr('height', height);
+
+// Add background
+svg.append('rect')
+  .attr('class', 'background')
+  .attr('width', width)
+  .attr('height', height)
+  .attr('mask', "url(#mask-path)")
+  .on('click', clicked);
+
+var g = svg.append('g')
+
+var mapLayer = g.append('g')
+  .classed('map-layer', true);
+
+var crimeLayer = g.append('g')
+  .classed('crime-layer', true);
+
+var dummyText = g.append('text')
+  .classed('dummy-text', true)
+  .attr('x', 10)
+  .attr('y', 30)
+  .style('opacity', 0);
+
+var bigText = g.append('text')
+  .classed('big-text', true)
+  .attr('x', 20)
+  .attr('y', 45);
+
+var parseRow = function(row) {
+  return row;
+}
+
+function makemap(error, mapData, csvData) {
+  var features = mapData.features;
+
+  // Update color scale domain based on data
+  color.domain([0, d3.max(features, nameLength)]);
+
+  // Draw each province as a path
+  mapLayer.selectAll('path')
+      .data(features)
+    .enter().append('path')
+      .attr('d', path)
+      .attr('vector-effect', 'non-scaling-stroke')
+      .style('fill', fillFn)
+      .on('mouseover', mouseover)
+      .on('mouseout', mouseout)
+      .on('click', clicked);
+
+  crimeLayer.selectAll("circle")
+    .data(csvData)
+    .enter().append("circle")
+    .attr("cx", function (d) { return projection([d.x,d.y])[0];})
+    .attr("cy", function (d) { return projection([d.x,d.y])[1];})
+    .attr("r", 1)
+    .attr('fill-opacity', 0.2);
+
+};
+
+// Get province name
+function nameFn(d){
+  return d && d.properties ? d.properties.NOMBRE_DPT : null;
+}
+
+// Get province name length
+function nameLength(d){
+  var n = nameFn(d);
+  return n ? n.length : 0;
+}
+
+// Get province color
+function fillFn(d){
+  return color(nameLength(d));
+}
+
+// When clicked, zoom in
+function clicked(d) {
+  var x, y, k;
+
+  // Compute centroid of the selected path
+  if (d && centered !== d) {
+    var centroid = path.centroid(d);
+    x = centroid[0];
+    y = centroid[1];
+    k = 4;
+    centered = d;
+  } else {
+    x = width / 2;
+    y = height / 2;
+    k = 1;
+    centered = null;
+  }
+
+  // Highlight the clicked province
+  mapLayer.selectAll('path')
+    .style('fill', function(d){return centered && d===centered ? '#D5708B' : fillFn(d);});
+
+  // Zoom
+  g.transition()
+    .duration(750)
+    .attr('transform', 'translate(' + width / 2 + ',' + height / 2 + ')scale(' + k + ')translate(' + -x + ',' + -y + ')');
+}
+
+function mouseover(d){
+  // Highlight hovered province
+  d3.select(this).style('fill', 'orange');
+}
+
+function mouseout(d){
+  // Reset province color
+  mapLayer.selectAll('path')
+    .style('fill', function(d){return centered && d===centered ? '#D5708B' : fillFn(d);});
+
+  // Clear province name
+  bigText.text('');
+}
+
+///////////////////////////
+//ALAN'S PLAYGROUND START
+///////////////////////////
+function gen_weekday_checkboxes(selector) {
+  var weekdays = ["Mon", "Tue", "Wed", "Thurs", "Fri", "Sat", "Sun"];
+
+  weekdays.forEach(function(day) {
+    var id = selector + "_" + day;
+
+    $('<input />', 
+      { type: 'checkbox', 
+        id: id, 
+        value: true,
+        class: "weekday" })
+    .appendTo(selector);
+
+    $(selector).append("<label for= " + id + ">" + day + "</label>");
+  });
+}
+
+function formatData(csvData) {
+  var dateFormat = d3.time.format('%m/%d/%Y %H:%M:%S');
+  var formattedData = [];
+
+  csvData.forEach(function(d) {
+    var date = d["occur_date"] + " " + (d["occur_time"] == "" ? "00:00:00" : d["occur_time"]);
+
+    formattedData.push({
+      id: d["offense_id"],
+      occur_date: dateFormat.parse(date),
+      day_of_week: d["AvgDay"],
+      crime_type: d["UC2 Literal"]
+    });
+  });
+
+  return formattedData;
+}
+
+//Main JQuery Ready Method
+$(document).ready(function() {
+  //Generate HTML elements
+  $("#time_of_day_slider").slider({
+    range: true,
+    min: 0,
+    max: 24,
+    values: [0, 24],
+    slide: function(event, ui) {
+      $("#time_label").val(ui.values[0] + " - " + ui.values[1]);
+    }
+  });
+
+  $( "#time_label" ).val($( "#time_of_day_slider" ).slider( "values", 0 ) +
+      " - " + $( "#time_of_day_slider" ).slider( "values", 1 ) );
+
+  gen_weekday_checkboxes("#toc_chckbox");
+  gen_weekday_checkboxes("#dow_chckbox");
+  
+  queue().defer(d3.json, "atlanta.geo.json")
+   .defer(d3.csv, "atlanta.csv", parseRow)
+   .await(function(err, mapData, csvData) {
+      // Generate Heatmap   
+      makemap(err, mapData, csvData);
+
+      // Format data
+      var data = formatData(csvData);
+
+      // Charts
+      var day_week_row_chart = dc.rowChart("#day-of-week-chart");
+      //var time_of_day_chart = dc.lineChart("#tod-chart");
+      var type_crime_pie_chart = dc.pieChart("#type-of-crime-chart");
+
+      // Set crossfilter
+      atl_cf = crossfilter(data);
+      weekDim = atl_cf.dimension(function(d) { return d.day_of_week; });
+      crimeDim = atl_cf.dimension(function(d) { return d.crime_type });
+      crimePerWeek = weekDim.group().reduceSum(function(d) { return +1 });
+      crimePerType = crimeDim.group().reduceSum(function(d) { return +1 });
+
+      // Create pie chart
+      type_crime_pie_chart
+      .width(768)
+      .height(480)
+      .slicesCap(9)
+      .innerRadius(100)
+      .dimension(crimeDim)
+      .group(crimePerType)
+      .innerRadius(200);
+  
+      // Create row chart
+      day_week_row_chart
+      .width(768)
+      .height(480)
+      .dimension(weekDim)
+      .group(crimePerWeek)
+      .elasticX(true);
+
+      // Render charts
+      dc.renderAll();
+  });
+});
+
+</script>
+
+</body>
+</html>
